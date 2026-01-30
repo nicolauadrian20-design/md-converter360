@@ -16,7 +16,7 @@
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
-    <PackageReference Include="UglyToad.PdfPig" Version="0.1.9-alpha-001-patch-1" />
+    <PackageReference Include="UglyToad.PdfPig" Version="0.1.6" />
   </ItemGroup>
 
 </Project>
