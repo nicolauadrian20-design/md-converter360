@@ -36,16 +36,16 @@ RUN mkdir -p /app/Storage /app/Logs && chown -R appuser:appuser /app
 # Switch to non-root user
 USER appuser
 
-# Expose port
-EXPOSE 8080
+# Expose port (Render will use PORT env var)
+EXPOSE 10000
 
-# Set environment variables
-ENV ASPNETCORE_URLS=http://+:8080
+# Set environment variables - Render provides PORT at runtime
 ENV ASPNETCORE_ENVIRONMENT=Production
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/api/health || exit 1
+# Health check - use PORT env var (defaults to 10000 on Render)
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-10000}/api/health || exit 1
 
-# Start the application
-ENTRYPOINT ["dotnet", "MDConverter360.dll"]
+# Start the application with dynamic port binding
+# Render sets PORT env var, we need to bind to it
+CMD ASPNETCORE_URLS=http://+:${PORT:-10000} dotnet MDConverter360.dll
