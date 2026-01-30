@@ -10,8 +10,8 @@ using Markdig.Syntax.Inlines;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
-using UglyToad.PdfPig;
-using UglyToad.PdfPig.Content;
+using Docnet.Core;
+using Docnet.Core.Models;
 
 namespace MDConverter360.Services;
 
@@ -128,13 +128,15 @@ public class ConverterService : IConverterService
         var markdown = new StringBuilder();
         var metadata = new ConversionMetadata { SourceFormat = "PDF", TargetFormat = "Markdown" };
 
-        using var document = PdfDocument.Open(pdfBytes);
-        metadata.PageCount = document.NumberOfPages;
+        using var docReader = DocLib.Instance.GetDocReader(pdfBytes, new PageDimensions(1080, 1920));
+        metadata.PageCount = docReader.GetPageCount();
 
-        foreach (var page in document.GetPages())
+        for (int i = 0; i < docReader.GetPageCount(); i++)
         {
-            var pageText = ExtractStructuredTextFromPdfPage(page);
-            markdown.Append(pageText);
+            using var pageReader = docReader.GetPageReader(i);
+            var pageText = pageReader.GetText();
+            var processedText = ProcessPdfPageText(pageText);
+            markdown.Append(processedText);
         }
 
         var markdownText = CleanupMarkdown(markdown.ToString());
@@ -153,57 +155,25 @@ public class ConverterService : IConverterService
         });
     }
 
-    private string ExtractStructuredTextFromPdfPage(Page page)
+    private string ProcessPdfPageText(string pageText)
     {
+        if (string.IsNullOrWhiteSpace(pageText))
+            return "\n\n";
+
         var result = new StringBuilder();
-        var words = page.GetWords().ToList();
+        var lines = pageText.Split('\n', StringSplitOptions.RemoveEmptyEntries);
 
-        if (words.Count == 0)
+        foreach (var rawLine in lines)
         {
-            return page.Text + "\n\n";
-        }
-
-        // Group words by lines based on Y position
-        var lines = new List<List<Word>>();
-        var currentLine = new List<Word>();
-        double? lastY = null;
-
-        foreach (var word in words.OrderBy(w => w.BoundingBox.Bottom).ThenBy(w => w.BoundingBox.Left))
-        {
-            if (lastY == null || Math.Abs(word.BoundingBox.Bottom - lastY.Value) < 5)
-            {
-                currentLine.Add(word);
-            }
-            else
-            {
-                if (currentLine.Count > 0)
-                {
-                    lines.Add(currentLine.OrderBy(w => w.BoundingBox.Left).ToList());
-                }
-                currentLine = new List<Word> { word };
-            }
-            lastY = word.BoundingBox.Bottom;
-        }
-
-        if (currentLine.Count > 0)
-        {
-            lines.Add(currentLine.OrderBy(w => w.BoundingBox.Left).ToList());
-        }
-
-        // Process lines
-        foreach (var line in lines)
-        {
-            var lineText = string.Join(" ", line.Select(w => w.Text)).Trim();
+            var lineText = rawLine.Trim();
             if (string.IsNullOrWhiteSpace(lineText)) continue;
 
-            // Detect headers based on font size (if available) or patterns
-            var avgFontSize = line.Average(w => w.Letters.FirstOrDefault()?.PointSize ?? 12);
-
-            if (avgFontSize > 16 || IsLikelyHeader(lineText))
+            // Detect headers based on patterns
+            if (IsLikelyHeader(lineText))
             {
-                if (avgFontSize > 20)
+                if (lineText.Length < 30)
                     result.AppendLine($"# {lineText}");
-                else if (avgFontSize > 16)
+                else if (lineText.Length < 60)
                     result.AppendLine($"## {lineText}");
                 else
                     result.AppendLine($"### {lineText}");
