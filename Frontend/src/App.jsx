@@ -205,10 +205,8 @@ function App() {
   // Convert files
   const convertFiles = async () => {
     if (files.length === 0) return
-    if (backendStatus !== BACKEND_STATUS.ONLINE) {
-      alert('Please wait for the backend to come online before converting files.')
-      return
-    }
+    // Allow conversion attempt even if backend status is uncertain
+    // The actual API call will fail if backend is truly down
 
     setConverting(true)
     setResults([])
@@ -259,11 +257,7 @@ function App() {
 
   // Convert single file and download
   const convertSingleFile = async (file) => {
-    if (backendStatus !== BACKEND_STATUS.ONLINE) {
-      alert('Please wait for the backend to come online before converting files.')
-      return
-    }
-
+    // Allow conversion attempt regardless of backend status
     const formData = new FormData()
     formData.append('file', file)
 
@@ -356,27 +350,6 @@ function App() {
 
   return (
     <div className={`app ${darkMode ? 'dark' : 'light'}`}>
-      {/* Loading Overlay when backend is waking up */}
-      {backendStatus === BACKEND_STATUS.WAKING && (
-        <div className="loading-overlay">
-          <div className="loading-content">
-            <div className="loading-spinner">
-              <Loader2 size={48} className="spinner" />
-            </div>
-            <h2>Server is waking up...</h2>
-            <p>Free hosting services sleep after inactivity.</p>
-            <p>Please wait, this usually takes 30-60 seconds.</p>
-            <div className="loading-timer">
-              <Clock size={18} />
-              <span>{formatElapsedTime(wakeElapsed)}</span>
-            </div>
-            <div className="loading-progress">
-              <div className="loading-progress-bar"></div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <header className="header">
         <div className="header-content">
           <div className="logo">
@@ -488,7 +461,10 @@ function App() {
                   <div className="file-actions">
                     <button
                       className="btn-action download"
-                      onClick={() => convertSingleFile(file)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        convertSingleFile(file)
+                      }}
                       disabled={converting}
                       title="Convert & Download"
                     >
@@ -496,7 +472,10 @@ function App() {
                     </button>
                     <button
                       className="btn-action remove"
-                      onClick={() => removeFile(index)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        removeFile(index)
+                      }}
                       disabled={converting}
                       title="Remove"
                     >
@@ -513,19 +492,14 @@ function App() {
         {files.length > 0 && (
           <div className="convert-section">
             <button
-              className={`btn-convert ${backendStatus !== BACKEND_STATUS.ONLINE ? 'waiting' : ''}`}
+              className="btn-convert"
               onClick={convertFiles}
-              disabled={converting || files.length === 0 || backendStatus !== BACKEND_STATUS.ONLINE}
+              disabled={converting || files.length === 0}
             >
               {converting ? (
                 <>
                   <Loader2 size={20} className="spinner" />
                   Converting... {conversionProgress.uploadProgress ? `(${conversionProgress.uploadProgress}%)` : ''}
-                </>
-              ) : backendStatus !== BACKEND_STATUS.ONLINE ? (
-                <>
-                  <Clock size={20} />
-                  Waiting for server...
                 </>
               ) : (
                 <>
