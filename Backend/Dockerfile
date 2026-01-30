@@ -39,13 +39,14 @@ USER appuser
 # Expose port (Render will use PORT env var)
 EXPOSE 10000
 
-# Set environment variables - Render provides PORT at runtime
+# Set environment variables
 ENV ASPNETCORE_ENVIRONMENT=Production
+ENV DOTNET_RUNNING_IN_CONTAINER=true
 
-# Health check - use PORT env var (defaults to 10000 on Render)
+# Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:${PORT:-10000}/api/health || exit 1
 
-# Start the application with dynamic port binding
-# Render sets PORT env var, we need to bind to it
-CMD ASPNETCORE_URLS=http://+:${PORT:-10000} dotnet MDConverter360.dll
+# Start the application - use shell form to expand PORT variable
+# The + means bind to all interfaces (0.0.0.0), not just localhost
+CMD /bin/sh -c "dotnet MDConverter360.dll --urls=http://0.0.0.0:${PORT:-10000}"
