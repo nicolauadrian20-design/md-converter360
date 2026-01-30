@@ -23,11 +23,9 @@ try
     // Configure Serilog
     builder.Host.UseSerilog();
 
-    // Configure Kestrel to listen on port 5294
-    builder.WebHost.ConfigureKestrel(options =>
-    {
-        options.ListenLocalhost(5294);
-    });
+    // Note: Port binding is handled by ASPNETCORE_URLS environment variable
+    // In development: set via launchSettings.json or environment
+    // In production (Render): set via Dockerfile CMD
 
     // Add services to the container
     builder.Services.AddControllers();
@@ -47,8 +45,18 @@ try
         {
             policy.WithOrigins(
                     "http://localhost:5172",
-                    "http://127.0.0.1:5172"
+                    "http://127.0.0.1:5172",
+                    "https://md-converter-web.onrender.com",
+                    "https://md-converter-api.onrender.com"
                 )
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        });
+
+        // Allow all origins in production (alternative)
+        options.AddPolicy("AllowAll", policy =>
+        {
+            policy.AllowAnyOrigin()
                 .AllowAnyMethod()
                 .AllowAnyHeader();
         });
@@ -67,7 +75,18 @@ try
         options.RoutePrefix = "swagger";
     });
 
-    app.UseCors("AllowFrontend");
+    // Use AllowAll CORS policy in production, AllowFrontend in development
+    var environment = app.Environment.EnvironmentName;
+    if (environment == "Production")
+    {
+        app.UseCors("AllowAll");
+        Log.Information("CORS: AllowAll (Production)");
+    }
+    else
+    {
+        app.UseCors("AllowFrontend");
+        Log.Information("CORS: AllowFrontend (Development)");
+    }
 
     // Health check endpoint at root
     app.MapGet("/api/health", () => Results.Ok(new
@@ -75,14 +94,14 @@ try
         status = "healthy",
         service = "MD.converter360",
         version = "1.0.0",
+        environment = environment,
         timestamp = DateTime.UtcNow
     }));
 
     app.MapControllers();
 
     Log.Information("MD.converter360 started successfully");
-    Log.Information("Backend:  http://localhost:5294");
-    Log.Information("Swagger:  http://localhost:5294/swagger");
+    Log.Information("Environment: {Environment}", environment);
 
     app.Run();
 }
