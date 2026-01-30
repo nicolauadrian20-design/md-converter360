@@ -1,0 +1,6 @@
+@MDConverter360_HostAddress = http://localhost:5022
+
+GET {{MDConverter360_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

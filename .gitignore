@@ -1,0 +1,71 @@
+# .NET
+bin/
+obj/
+*.dll
+*.pdb
+*.exe
+*.cache
+*.log
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+build/
+bld/
+
+# NuGet
+*.nupkg
+.nuget/
+packages/
+project.lock.json
+
+# IDE
+.vs/
+.vscode/
+*.swp
+*.swo
+*~
+.idea/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Frontend build
+dist/
+.cache/
+
+# Logs
+Logs/
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+.env.production
+.env*.local
+appsettings.*.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp files
+*.tmp
+*.temp
+*.bak
+
+# Storage (uploaded/converted files)
+Storage/
+Downloads/
+uploads/
