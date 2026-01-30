@@ -15,10 +15,13 @@ RUN dotnet publish -c Release -o /app/publish
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 
-# Install font dependencies for QuestPDF
+# Install dependencies for QuestPDF and Docnet.Core (PDFium)
 RUN apt-get update && apt-get install -y \
     libfontconfig1 \
     libfreetype6 \
+    libgdiplus \
+    libc6-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
