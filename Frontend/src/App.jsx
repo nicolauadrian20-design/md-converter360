@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import axios from 'axios'
 import {
   FileText,
@@ -13,9 +13,20 @@ import {
   Moon,
   Sun,
   ArrowRight,
-  FileType2
+  FileType2,
+  Wifi,
+  WifiOff,
+  Clock
 } from 'lucide-react'
 import './App.css'
+
+// Backend status states
+const BACKEND_STATUS = {
+  CHECKING: 'checking',
+  ONLINE: 'online',
+  WAKING: 'waking',
+  OFFLINE: 'offline'
+}
 
 function App() {
   const [files, setFiles] = useState([])
@@ -27,7 +38,84 @@ function App() {
     return localStorage.getItem('theme') === 'dark'
   })
   const [dragActive, setDragActive] = useState(false)
+  const [backendStatus, setBackendStatus] = useState(BACKEND_STATUS.CHECKING)
+  const [wakeStartTime, setWakeStartTime] = useState(null)
+  const [wakeElapsed, setWakeElapsed] = useState(0)
+  const [conversionProgress, setConversionProgress] = useState({ current: 0, total: 0 })
   const fileInputRef = useRef(null)
+  const healthCheckInterval = useRef(null)
+  const wakeTimerInterval = useRef(null)
+
+  // Check backend health
+  const checkBackendHealth = useCallback(async (isInitial = false) => {
+    try {
+      const startTime = Date.now()
+      const response = await axios.get('/api/health', { timeout: 10000 })
+      const responseTime = Date.now() - startTime
+
+      if (response.status === 200) {
+        setBackendStatus(BACKEND_STATUS.ONLINE)
+        setWakeStartTime(null)
+        setWakeElapsed(0)
+        // If we were waking and now online, clear the wake timer
+        if (wakeTimerInterval.current) {
+          clearInterval(wakeTimerInterval.current)
+          wakeTimerInterval.current = null
+        }
+        return true
+      }
+    } catch (error) {
+      // If initial check and we get a timeout or slow response, it's waking up
+      if (error.code === 'ECONNABORTED' || error.response?.status === 503) {
+        if (backendStatus !== BACKEND_STATUS.WAKING) {
+          setBackendStatus(BACKEND_STATUS.WAKING)
+          setWakeStartTime(Date.now())
+        }
+      } else if (error.message?.includes('Network Error') || !error.response) {
+        // Network error could mean waking up on Render free tier
+        if (isInitial || backendStatus === BACKEND_STATUS.CHECKING) {
+          setBackendStatus(BACKEND_STATUS.WAKING)
+          setWakeStartTime(Date.now())
+        } else {
+          setBackendStatus(BACKEND_STATUS.OFFLINE)
+        }
+      } else {
+        setBackendStatus(BACKEND_STATUS.OFFLINE)
+      }
+    }
+    return false
+  }, [backendStatus])
+
+  // Initial health check and periodic checks
+  useEffect(() => {
+    checkBackendHealth(true)
+
+    // Check every 5 seconds when online, every 3 seconds when waking
+    healthCheckInterval.current = setInterval(() => {
+      checkBackendHealth(false)
+    }, backendStatus === BACKEND_STATUS.WAKING ? 3000 : 10000)
+
+    return () => {
+      if (healthCheckInterval.current) {
+        clearInterval(healthCheckInterval.current)
+      }
+    }
+  }, [checkBackendHealth, backendStatus])
+
+  // Wake timer
+  useEffect(() => {
+    if (backendStatus === BACKEND_STATUS.WAKING && wakeStartTime) {
+      wakeTimerInterval.current = setInterval(() => {
+        setWakeElapsed(Math.floor((Date.now() - wakeStartTime) / 1000))
+      }, 1000)
+    }
+
+    return () => {
+      if (wakeTimerInterval.current) {
+        clearInterval(wakeTimerInterval.current)
+      }
+    }
+  }, [backendStatus, wakeStartTime])
 
   // Toggle dark mode
   const toggleDarkMode = () => {
@@ -117,9 +205,14 @@ function App() {
   // Convert files
   const convertFiles = async () => {
     if (files.length === 0) return
+    if (backendStatus !== BACKEND_STATUS.ONLINE) {
+      alert('Please wait for the backend to come online before converting files.')
+      return
+    }
 
     setConverting(true)
     setResults([])
+    setConversionProgress({ current: 0, total: files.length })
 
     const formData = new FormData()
     files.forEach(file => {
@@ -134,23 +227,43 @@ function App() {
         },
         headers: {
           'Content-Type': 'multipart/form-data'
+        },
+        timeout: 300000, // 5 minutes timeout for large files
+        onUploadProgress: (progressEvent) => {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+          setConversionProgress(prev => ({ ...prev, uploadProgress: progress }))
         }
       })
 
       setResults(response.data.results)
+      setConversionProgress({ current: files.length, total: files.length })
     } catch (error) {
       console.error('Conversion failed:', error)
+      let errorMessage = 'Conversion failed'
+      if (error.code === 'ECONNABORTED') {
+        errorMessage = 'Request timed out. The file may be too large or the server is busy.'
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error
+      } else if (error.message) {
+        errorMessage = error.message
+      }
       setResults([{
         success: false,
-        error: error.response?.data?.error || error.message || 'Conversion failed'
+        error: errorMessage
       }])
     } finally {
       setConverting(false)
+      setConversionProgress({ current: 0, total: 0 })
     }
   }
 
   // Convert single file and download
   const convertSingleFile = async (file) => {
+    if (backendStatus !== BACKEND_STATUS.ONLINE) {
+      alert('Please wait for the backend to come online before converting files.')
+      return
+    }
+
     const formData = new FormData()
     formData.append('file', file)
 
@@ -163,7 +276,8 @@ function App() {
         responseType: 'blob',
         headers: {
           'Content-Type': 'multipart/form-data'
-        }
+        },
+        timeout: 120000 // 2 minutes timeout
       })
 
       // Create download link
@@ -187,7 +301,53 @@ function App() {
       window.URL.revokeObjectURL(url)
     } catch (error) {
       console.error('Download failed:', error)
-      alert('Download failed: ' + (error.response?.data?.error || error.message))
+      let errorMessage = error.response?.data?.error || error.message || 'Download failed'
+      if (error.code === 'ECONNABORTED') {
+        errorMessage = 'Request timed out. Please try again.'
+      }
+      alert('Download failed: ' + errorMessage)
+    }
+  }
+
+  // Format elapsed time
+  const formatElapsedTime = (seconds) => {
+    if (seconds < 60) return `${seconds}s`
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}m ${secs}s`
+  }
+
+  // Get status indicator component
+  const getStatusIndicator = () => {
+    switch (backendStatus) {
+      case BACKEND_STATUS.ONLINE:
+        return (
+          <div className="status-indicator online">
+            <Wifi size={16} />
+            <span>Online</span>
+          </div>
+        )
+      case BACKEND_STATUS.WAKING:
+        return (
+          <div className="status-indicator waking">
+            <Clock size={16} className="spinner-slow" />
+            <span>Waking up... {formatElapsedTime(wakeElapsed)}</span>
+          </div>
+        )
+      case BACKEND_STATUS.OFFLINE:
+        return (
+          <div className="status-indicator offline">
+            <WifiOff size={16} />
+            <span>Offline</span>
+          </div>
+        )
+      default:
+        return (
+          <div className="status-indicator checking">
+            <Loader2 size={16} className="spinner" />
+            <span>Connecting...</span>
+          </div>
+        )
     }
   }
 
@@ -196,6 +356,27 @@ function App() {
 
   return (
     <div className={`app ${darkMode ? 'dark' : 'light'}`}>
+      {/* Loading Overlay when backend is waking up */}
+      {backendStatus === BACKEND_STATUS.WAKING && (
+        <div className="loading-overlay">
+          <div className="loading-content">
+            <div className="loading-spinner">
+              <Loader2 size={48} className="spinner" />
+            </div>
+            <h2>Server is waking up...</h2>
+            <p>Free hosting services sleep after inactivity.</p>
+            <p>Please wait, this usually takes 30-60 seconds.</p>
+            <div className="loading-timer">
+              <Clock size={18} />
+              <span>{formatElapsedTime(wakeElapsed)}</span>
+            </div>
+            <div className="loading-progress">
+              <div className="loading-progress-bar"></div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="header">
         <div className="header-content">
           <div className="logo">
@@ -206,9 +387,12 @@ function App() {
           </div>
           <p className="subtitle">Convert PDF, Word to Markdown and vice versa</p>
         </div>
-        <button className="theme-toggle" onClick={toggleDarkMode} title="Toggle theme">
-          {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-        </button>
+        <div className="header-controls">
+          {getStatusIndicator()}
+          <button className="theme-toggle" onClick={toggleDarkMode} title="Toggle theme">
+            {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
+        </div>
       </header>
 
       <main className="main">
@@ -327,23 +511,38 @@ function App() {
 
         {/* Convert Button */}
         {files.length > 0 && (
-          <button
-            className="btn-convert"
-            onClick={convertFiles}
-            disabled={converting || files.length === 0}
-          >
-            {converting ? (
-              <>
-                <Loader2 size={20} className="spinner" />
-                Converting...
-              </>
-            ) : (
-              <>
-                <RefreshCw size={20} />
-                Convert All Files
-              </>
+          <div className="convert-section">
+            <button
+              className={`btn-convert ${backendStatus !== BACKEND_STATUS.ONLINE ? 'waiting' : ''}`}
+              onClick={convertFiles}
+              disabled={converting || files.length === 0 || backendStatus !== BACKEND_STATUS.ONLINE}
+            >
+              {converting ? (
+                <>
+                  <Loader2 size={20} className="spinner" />
+                  Converting... {conversionProgress.uploadProgress ? `(${conversionProgress.uploadProgress}%)` : ''}
+                </>
+              ) : backendStatus !== BACKEND_STATUS.ONLINE ? (
+                <>
+                  <Clock size={20} />
+                  Waiting for server...
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={20} />
+                  Convert All Files
+                </>
+              )}
+            </button>
+            {converting && (
+              <div className="conversion-progress-bar">
+                <div
+                  className="conversion-progress-fill"
+                  style={{ width: `${conversionProgress.uploadProgress || 0}%` }}
+                ></div>
+              </div>
             )}
-          </button>
+          </div>
         )}
 
         {/* Results */}
@@ -399,7 +598,13 @@ function App() {
       <footer className="footer">
         <p>MD.converter360 v1.0.0 | Part of the 360 Suite</p>
         <p className="footer-links">
-          <a href="http://localhost:5294/swagger" target="_blank" rel="noopener noreferrer">API Docs</a>
+          <a href="https://md-converter-api.onrender.com/swagger" target="_blank" rel="noopener noreferrer">API Docs</a>
+          <span className="footer-separator">|</span>
+          <span className="footer-status">
+            Server: {backendStatus === BACKEND_STATUS.ONLINE ? 'Online' :
+                     backendStatus === BACKEND_STATUS.WAKING ? 'Starting...' :
+                     backendStatus === BACKEND_STATUS.OFFLINE ? 'Offline' : 'Checking...'}
+          </span>
         </p>
       </footer>
     </div>
