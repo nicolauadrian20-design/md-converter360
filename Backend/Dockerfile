@@ -2,8 +2,9 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy csproj and restore dependencies
+# Copy csproj, nuget config and restore dependencies
 COPY MDConverter360.csproj .
+COPY NuGet.config .
 RUN dotnet restore
 
 # Copy everything else and build
