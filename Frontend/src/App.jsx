@@ -311,6 +311,16 @@ function App() {
     return `${mins}m ${secs}s`
   }
 
+  // Estimated wake time for Render free tier (seconds)
+  const ESTIMATED_WAKE_TIME = 35
+
+  // Get wake progress percentage
+  const getWakeProgress = () => {
+    if (!wakeElapsed) return 0
+    const progress = Math.min((wakeElapsed / ESTIMATED_WAKE_TIME) * 100, 95)
+    return progress
+  }
+
   // Get status indicator component
   const getStatusIndicator = () => {
     switch (backendStatus) {
@@ -345,6 +355,41 @@ function App() {
     }
   }
 
+  // Wake-up banner component
+  const WakeUpBanner = () => {
+    if (backendStatus !== BACKEND_STATUS.WAKING) return null
+
+    const progress = getWakeProgress()
+    const remainingTime = Math.max(ESTIMATED_WAKE_TIME - wakeElapsed, 0)
+
+    return (
+      <div className="wake-banner">
+        <div className="wake-banner-content">
+          <div className="wake-banner-icon">
+            <Loader2 size={24} className="spinner" />
+          </div>
+          <div className="wake-banner-text">
+            <h4>☕ Serverul se trezește...</h4>
+            <p>
+              Folosim hosting gratuit (Render Free Tier) care adoarme după 15 minute de inactivitate.
+              {remainingTime > 0 && ` Estimare: ~${remainingTime}s`}
+            </p>
+          </div>
+          <div className="wake-banner-timer">
+            <Clock size={18} />
+            <span>{formatElapsedTime(wakeElapsed)}</span>
+          </div>
+        </div>
+        <div className="wake-progress-container">
+          <div
+            className="wake-progress-bar"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+    )
+  }
+
   const successCount = results.filter(r => r.success).length
   const errorCount = results.filter(r => !r.success).length
 
@@ -367,6 +412,8 @@ function App() {
           </button>
         </div>
       </header>
+
+      <WakeUpBanner />
 
       <main className="main">
         {/* Drop Zone */}
